@@ -1,0 +1,360 @@
+<!DOCTYPE html>
+<html lang="zh-TW">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Sudoku Expert Pro (單機版)</title>
+    <style>
+        :root {
+            --primary-color: #2563eb;
+            --bg-color: #f8fafc;
+            --border-color: #94a3b8;
+            --grid-border: #1e293b;
+            --cell-bg: #ffffff;
+            --solved-color: #1d4ed8;
+            --user-color: #0f172a;
+        }
+
+        body {
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            background-color: var(--bg-color);
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            min-height: 100vh;
+            margin: 0;
+            padding: 20px;
+        }
+
+        h1 {
+            color: var(--grid-border);
+            margin-bottom: 10px;
+        }
+
+        .container {
+            background: white;
+            padding: 2rem;
+            border-radius: 1rem;
+            box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.1), 0 2px 4px -1px rgba(0, 0, 0, 0.06);
+            max-width: 600px;
+            width: 100%;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+        }
+
+        /* 輸入區域樣式 */
+        .input-group {
+            width: 100%;
+            margin-bottom: 1.5rem;
+            display: flex;
+            gap: 10px;
+        }
+
+        input[type="text"].string-input {
+            flex-grow: 1;
+            padding: 0.75rem;
+            border: 1px solid var(--border-color);
+            border-radius: 0.5rem;
+            font-family: monospace;
+        }
+
+        button {
+            padding: 0.75rem 1.5rem;
+            border: none;
+            border-radius: 0.5rem;
+            cursor: pointer;
+            font-weight: 600;
+            transition: all 0.2s;
+        }
+
+        .btn-primary { background-color: var(--primary-color); color: white; }
+        .btn-primary:hover { background-color: #1d4ed8; }
+        
+        .btn-secondary { background-color: #64748b; color: white; }
+        .btn-secondary:hover { background-color: #475569; }
+
+        .btn-danger { background-color: #ef4444; color: white; }
+        .btn-danger:hover { background-color: #dc2626; }
+
+        /* 數獨網格樣式 */
+        .sudoku-grid {
+            display: grid;
+            grid-template-columns: repeat(9, 1fr);
+            gap: 0;
+            border: 2px solid var(--grid-border);
+            margin-bottom: 1.5rem;
+            background-color: var(--grid-border);
+        }
+
+        .cell {
+            width: 40px;
+            height: 40px;
+            text-align: center;
+            font-size: 1.25rem;
+            border: 1px solid #cbd5e1;
+            background-color: var(--cell-bg);
+            outline: none;
+            color: var(--user-color);
+            font-weight: bold;
+        }
+
+        .cell:focus {
+            background-color: #e0f2fe;
+        }
+
+        /* 3x3 宮格粗線條 */
+        .cell:nth-child(3n) { border-right: 2px solid var(--grid-border); }
+        .cell:nth-child(9n) { border-right: none; } /* 最右邊不需要 */
+        
+        /* 由於是 grid layout，處理下邊框比較特殊，我們用 class 輔助 */
+        .cell.bottom-border {
+            border-bottom: 2px solid var(--grid-border);
+        }
+
+        /* 答案顏色 */
+        .cell.solved {
+            color: var(--primary-color);
+            background-color: #f0f9ff;
+        }
+
+        .controls {
+            display: flex;
+            gap: 1rem;
+            width: 100%;
+            justify-content: center;
+        }
+
+        .status {
+            margin-top: 1rem;
+            font-weight: bold;
+            min-height: 1.5em;
+        }
+        .status.error { color: #dc2626; }
+        .status.success { color: #16a34a; }
+
+    </style>
+</head>
+<body>
+
+    <div class="container">
+        <h1>Sudoku Expert Pro</h1>
+        
+        <div class="input-group">
+            <input type="text" id="puzzleString" class="string-input" placeholder="貼上字串 (例如: 123456789A2..9...)">
+            <button class="btn-secondary" onclick="loadFromString()">匯入字串</button>
+        </div>
+
+        <div class="sudoku-grid" id="grid">
+            </div>
+
+        <div class="controls">
+            <button class="btn-primary" onclick="solveGame()">開始解題</button>
+            <button class="btn-danger" onclick="clearBoard()">清空</button>
+        </div>
+
+        <div id="statusMessage" class="status"></div>
+    </div>
+
+    <script>
+        // --- 1. 初始化與 UI 建立 ---
+        const gridElement = document.getElementById('grid');
+        const inputs = []; // 儲存 81 個 input 元素的陣列
+
+        function createGrid() {
+            gridElement.innerHTML = '';
+            inputs.length = 0;
+
+            for (let i = 0; i < 81; i++) {
+                const input = document.createElement('input');
+                input.type = 'text';
+                input.maxLength = 1;
+                input.className = 'cell';
+                
+                // 處理 3x3 下邊框加粗
+                const row = Math.floor(i / 9);
+                if (row === 2 || row === 5) {
+                    input.classList.add('bottom-border');
+                }
+
+                // 輸入限制：只能輸入 1-9
+                input.addEventListener('input', (e) => {
+                    const val = e.target.value;
+                    if (!/^[1-9]$/.test(val)) {
+                        e.target.value = '';
+                    } else {
+                        // 當使用者手動輸入時，標記為「非電腦填寫」(移除 solved class)
+                        e.target.classList.remove('solved');
+                    }
+                });
+
+                gridElement.appendChild(input);
+                inputs.push(input);
+            }
+        }
+
+        createGrid(); // 啟動時建立網格
+
+        // --- 2. 字串解析邏輯 (您的特定格式) ---
+        function loadFromString() {
+            const str = document.getElementById('puzzleString').value.trim();
+            if (!str) {
+                showStatus('請輸入字串', 'error');
+                return;
+            }
+
+            // 使用正則表達式依據 A-I 切割
+            // 預期格式: [Header] A [Row1] ... I [Row9]
+            // split 之後，parts 陣列可能包含前面的 Header，我们需要過濾
+            const parts = str.split(/[A-I]/);
+            
+            // 過濾掉空字串或純空白，並取最後 9 段
+            const validRows = parts.filter(p => p && p.trim().length > 0);
+            
+            let finalRows = [];
+            if (validRows.length >= 9) {
+                finalRows = validRows.slice(-9); // 取最後 9 個
+            } else {
+                showStatus(`格式錯誤：解析出 ${validRows.length} 列，需要 9 列`, 'error');
+                return;
+            }
+
+            // 填入網格
+            clearBoard(); // 先清空
+            let cellIndex = 0;
+            
+            for (let rStr of finalRows) {
+                // 清理非數字與點的字符
+                const cleanStr = rStr.replace(/[^1-9.]/g, '');
+                
+                for (let char of cleanStr) {
+                    if (cellIndex < 81) {
+                        if (char !== '.') {
+                            inputs[cellIndex].value = char;
+                        }
+                        cellIndex++;
+                    }
+                }
+            }
+            showStatus('題目載入成功！', 'success');
+        }
+
+        // --- 3. 核心解題演算法 (Backtracking) ---
+        function solveGame() {
+            const board = [];
+            // 讀取當前網格數據
+            for (let i = 0; i < 9; i++) {
+                const row = [];
+                for (let j = 0; j < 9; j++) {
+                    const val = inputs[i * 9 + j].value;
+                    row.push(val === '' ? 0 : parseInt(val));
+                }
+                board.push(row);
+            }
+
+            // 驗證輸入是否有明顯衝突
+            if (!isValidBoard(board)) {
+                showStatus('初始題目有誤（存在重複數字），無法求解', 'error');
+                return;
+            }
+
+            showStatus('運算中...', 'success');
+
+            // 為了不卡死 UI，使用 setTimeout 給瀏覽器一點喘息時間 (雖然通常很快)
+            setTimeout(() => {
+                if (solve(board)) {
+                    // 將結果填回網格
+                    for (let i = 0; i < 9; i++) {
+                        for (let j = 0; j < 9; j++) {
+                            const input = inputs[i * 9 + j];
+                            // 如果原本是空的，現在填入答案，加上顏色標記
+                            if (input.value === '') {
+                                input.value = board[i][j];
+                                input.classList.add('solved');
+                            }
+                        }
+                    }
+                    showStatus('解題完成！藍色數字為計算結果。', 'success');
+                } else {
+                    showStatus('此題目無解 (No Solution)', 'error');
+                }
+            }, 10);
+        }
+
+        function solve(board) {
+            for (let r = 0; r < 9; r++) {
+                for (let c = 0; c < 9; c++) {
+                    if (board[r][c] === 0) {
+                        for (let num = 1; num <= 9; num++) {
+                            if (isValidMove(board, r, c, num)) {
+                                board[r][c] = num;
+                                if (solve(board)) return true;
+                                board[r][c] = 0; // Backtrack
+                            }
+                        }
+                        return false;
+                    }
+                }
+            }
+            return true;
+        }
+
+        function isValidMove(board, row, col, num) {
+            // 檢查列
+            for (let x = 0; x < 9; x++) {
+                if (board[row][x] === num && x !== col) return false;
+            }
+            // 檢查行
+            for (let x = 0; x < 9; x++) {
+                if (board[x][col] === num && x !== row) return false;
+            }
+            // 檢查宮格
+            const startRow = Math.floor(row / 3) * 3;
+            const startCol = Math.floor(col / 3) * 3;
+            for (let i = 0; i < 3; i++) {
+                for (let j = 0; j < 3; j++) {
+                    if (board[startRow + i][startCol + j] === num && (startRow + i !== row || startCol + j !== col)) {
+                        return false;
+                    }
+                }
+            }
+            return true;
+        }
+
+        // 檢查初始盤面是否合法 (防止使用者輸入重複數字導致無解)
+        function isValidBoard(board) {
+            for (let r = 0; r < 9; r++) {
+                for (let c = 0; c < 9; c++) {
+                    const num = board[r][c];
+                    if (num !== 0) {
+                        // 暫時移除該數字以檢查是否唯一
+                        board[r][c] = 0;
+                        if (!isValidMove(board, r, c, num)) {
+                            return false;
+                        }
+                        board[r][c] = num; // 放回去
+                    }
+                }
+            }
+            return true;
+        }
+
+        // --- 4. 輔助功能 ---
+        function clearBoard() {
+            inputs.forEach(input => {
+                input.value = '';
+                input.classList.remove('solved');
+            });
+            showStatus('', 'success');
+            document.getElementById('puzzleString').value = '';
+        }
+
+        function showStatus(msg, type) {
+            const el = document.getElementById('statusMessage');
+            el.textContent = msg;
+            el.className = 'status ' + type;
+        }
+
+    </script>
+</body>
+</html>
