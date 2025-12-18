@@ -1,0 +1,448 @@
+<!DOCTYPE html>
+<html lang="zh-TW">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <title>Sudoku Mobile Pro</title>
+    <style>
+        :root {
+            --primary: #007AFF; /* iOS Blue */
+            --bg: #F2F2F7;
+            --grid-border: #000;
+            --cell-border: #C6C6C8;
+            --cell-bg: #fff;
+            --highlight: #E4F2FF; /* 選中格子的背景色 */
+            --highlight-same: #d1e7fe; /* 相同數字的高亮 */
+            --solved-color: #007AFF;
+            --error-color: #FF3B30;
+        }
+
+        * { box-sizing: border-box; -webkit-tap-highlight-color: transparent; }
+
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+            background-color: var(--bg);
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            height: 100vh; /* 滿版 */
+            margin: 0;
+            padding: 10px;
+            overflow: hidden; /* 防止滾動 */
+        }
+
+        /* 標題與字串輸入區 */
+        .header {
+            width: 100%;
+            max-width: 500px;
+            display: flex;
+            flex-direction: column;
+            gap: 8px;
+            margin-bottom: 10px;
+            flex-shrink: 0;
+        }
+
+        .title-row {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+        }
+        
+        h1 { margin: 0; font-size: 1.2rem; color: #1C1C1E; }
+
+        .tools-row {
+            display: flex;
+            gap: 8px;
+        }
+
+        input.string-input {
+            flex: 1;
+            padding: 8px;
+            border-radius: 8px;
+            border: 1px solid #ccc;
+            font-size: 0.9rem;
+            background: #fff;
+        }
+
+        button.btn-sm {
+            padding: 6px 12px;
+            font-size: 0.85rem;
+            border-radius: 6px;
+            background: #E5E5EA;
+            border: none;
+            font-weight: 600;
+            color: #000;
+        }
+
+        /* 數獨網格主體 */
+        .grid-container {
+            width: 100%;
+            max-width: 500px;
+            /* 保持正方形，以寬度為基準 */
+            aspect-ratio: 1; 
+            background: var(--grid-border);
+            border: 2px solid var(--grid-border);
+            display: grid;
+            grid-template-columns: repeat(9, 1fr);
+            grid-template-rows: repeat(9, 1fr);
+            gap: 1px;
+            margin-bottom: auto; /* 將下方空間留給鍵盤 */
+        }
+
+        .cell {
+            background: var(--cell-bg);
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            font-size: clamp(1.2rem, 5vw, 1.8rem); /* 字體隨寬度縮放 */
+            font-weight: 500;
+            cursor: pointer;
+            user-select: none;
+            color: #000;
+            position: relative;
+        }
+
+        /* 3x3 宮格邊框加粗 (利用偽元素或特定 margin，這裡用 border trick) */
+        .cell:nth-child(3n) { border-right: 1px solid var(--grid-border); }
+        .cell:nth-child(9n) { border-right: none; }
+        
+        /* 下邊框加粗處理：我們直接在 HTML 生成時對特定格子加 class */
+        .cell.border-bottom {
+            border-bottom: 1px solid var(--grid-border);
+        }
+
+        /* 狀態樣式 */
+        .cell.selected { background-color: var(--highlight); }
+        .cell.highlight-same { background-color: var(--highlight-same); }
+        .cell.solved { color: var(--solved-color); font-weight: 700; }
+        .cell.fixed { color: #000; } /* 題目原本的數字 */
+
+        /* 底部控制區 */
+        .controls-area {
+            width: 100%;
+            max-width: 500px;
+            display: flex;
+            flex-direction: column;
+            gap: 10px;
+            padding-bottom: 15px;
+            flex-shrink: 0;
+        }
+
+        /* 虛擬數字鍵盤 */
+        .numpad {
+            display: grid;
+            grid-template-columns: repeat(5, 1fr); /* 1-5 */
+            gap: 8px;
+        }
+        
+        /* 第二排 6-9 和刪除 */
+        .numpad-row-2 {
+            display: grid;
+            grid-template-columns: repeat(5, 1fr);
+            gap: 8px;
+            margin-top: 8px;
+        }
+
+        .num-btn {
+            background: #fff;
+            border-radius: 8px;
+            height: 48px; /* 適合手指點擊的高度 */
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            font-size: 1.5rem;
+            color: var(--primary);
+            font-weight: 500;
+            box-shadow: 0 1px 3px rgba(0,0,0,0.1);
+            cursor: pointer;
+        }
+        
+        .num-btn:active { background-color: #f0f0f0; }
+
+        .btn-action {
+            width: 100%;
+            padding: 12px;
+            border-radius: 10px;
+            font-size: 1rem;
+            font-weight: bold;
+            border: none;
+            color: white;
+            background-color: var(--primary);
+            box-shadow: 0 2px 5px rgba(0,0,0,0.2);
+        }
+        
+        .btn-action.clear { background-color: #FF3B30; margin-top: 5px;}
+        
+        .btn-del { color: #FF3B30; }
+
+        #status {
+            text-align: center;
+            height: 20px;
+            font-size: 0.9rem;
+            color: #666;
+        }
+
+    </style>
+</head>
+<body>
+
+    <div class="header">
+        <div class="title-row">
+            <h1>Sudoku Pro</h1>
+            <div id="status">準備就緒</div>
+        </div>
+        <div class="tools-row">
+            <input type="text" id="strInput" class="string-input" placeholder="貼上字串 (123...)" onfocus="this.select()">
+            <button class="btn-sm" onclick="loadString()">匯入</button>
+        </div>
+    </div>
+
+    <div class="grid-container" id="grid">
+        </div>
+
+    <div class="controls-area">
+        <div>
+            <div class="numpad">
+                <div class="num-btn" onclick="inputNum(1)">1</div>
+                <div class="num-btn" onclick="inputNum(2)">2</div>
+                <div class="num-btn" onclick="inputNum(3)">3</div>
+                <div class="num-btn" onclick="inputNum(4)">4</div>
+                <div class="num-btn" onclick="inputNum(5)">5</div>
+            </div>
+            <div class="numpad-row-2">
+                <div class="num-btn" onclick="inputNum(6)">6</div>
+                <div class="num-btn" onclick="inputNum(7)">7</div>
+                <div class="num-btn" onclick="inputNum(8)">8</div>
+                <div class="num-btn" onclick="inputNum(9)">9</div>
+                <div class="num-btn btn-del" onclick="inputNum(0)">⌫</div>
+            </div>
+        </div>
+
+        <button class="btn-action" onclick="solveGame()">一鍵解題 (Solve)</button>
+        <button class="btn-action clear" onclick="clearBoard()">重置 (Reset)</button>
+    </div>
+
+    <script>
+        const gridEl = document.getElementById('grid');
+        const statusEl = document.getElementById('status');
+        let selectedIndex = -1; // 當前選中的格子索引
+        let cells = []; // 儲存 DOM 元素
+
+        // --- 1. 初始化網格 ---
+        function initGrid() {
+            gridEl.innerHTML = '';
+            cells = [];
+            for (let i = 0; i < 81; i++) {
+                const cell = document.createElement('div');
+                cell.className = 'cell';
+                cell.dataset.index = i;
+                
+                // 3x3 邊框處理
+                const row = Math.floor(i / 9);
+                if (row === 2 || row === 5) {
+                    cell.classList.add('border-bottom');
+                }
+
+                // 點擊選取事件
+                cell.addEventListener('click', () => selectCell(i));
+                
+                gridEl.appendChild(cell);
+                cells.push(cell);
+            }
+        }
+
+        // --- 2. 互動邏輯 ---
+        function selectCell(index) {
+            // 移除舊的選取狀態
+            if (selectedIndex !== -1) {
+                cells[selectedIndex].classList.remove('selected');
+            }
+            
+            // 清除相同數字高亮
+            cells.forEach(c => c.classList.remove('highlight-same'));
+
+            selectedIndex = index;
+            const currentCell = cells[index];
+            currentCell.classList.add('selected');
+
+            // 如果該格有數字，高亮所有相同的數字
+            const val = currentCell.textContent;
+            if (val) {
+                cells.forEach(c => {
+                    if (c.textContent === val) c.classList.add('highlight-same');
+                });
+            }
+        }
+
+        function inputNum(num) {
+            if (selectedIndex === -1) {
+                showMessage("請先點選格子", "gray");
+                return;
+            }
+
+            const cell = cells[selectedIndex];
+            
+            // 填入數字 (0 代表清除)
+            if (num === 0) {
+                cell.textContent = '';
+                cell.classList.remove('fixed', 'solved');
+            } else {
+                cell.textContent = num;
+                cell.classList.remove('solved'); // 手動輸入的不算電腦解的
+                // 再次觸發高亮檢查
+                selectCell(selectedIndex);
+            }
+        }
+
+        function showMessage(msg, color="black") {
+            statusEl.textContent = msg;
+            statusEl.style.color = color;
+        }
+
+        // --- 3. 字串匯入邏輯 ---
+        function loadString() {
+            const str = document.getElementById('strInput').value.trim();
+            if (!str) return;
+
+            // 解析邏輯：支援 A-I 分隔，或純數字字串
+            let cleanStr = "";
+            
+            // 判斷是否包含 A-I 格式
+            if (/[A-I]/.test(str)) {
+                 const parts = str.split(/[A-I]/);
+                 const validRows = parts.filter(p => p && p.trim().length > 0).slice(-9);
+                 if (validRows.length !== 9) {
+                     showMessage("格式錯誤：找不到 9 列數據", "red");
+                     return;
+                 }
+                 cleanStr = validRows.join('');
+            } else {
+                // 純字串模式 (假設只有數字和點)
+                cleanStr = str;
+            }
+
+            // 最終清理
+            cleanStr = cleanStr.replace(/[^1-9.]/g, '');
+            
+            // 填入
+            clearBoard();
+            let idx = 0;
+            for (let char of cleanStr) {
+                if (idx >= 81) break;
+                if (char !== '.') {
+                    cells[idx].textContent = char;
+                    cells[idx].classList.add('fixed'); // 標記為題目
+                }
+                idx++;
+            }
+            showMessage("題目載入完成", "blue");
+        }
+
+        // --- 4. 核心解題演算法 ---
+        function solveGame() {
+            // 1. 讀取目前的盤面
+            let board = [];
+            for (let i = 0; i < 9; i++) {
+                let row = [];
+                for (let j = 0; j < 9; j++) {
+                    let val = cells[i * 9 + j].textContent;
+                    row.push(val === '' ? 0 : parseInt(val));
+                }
+                board.push(row);
+            }
+
+            // 2. 檢查盤面合法性
+            if (!isValidBoard(board)) {
+                showMessage("目前盤面有衝突，無法求解", "red");
+                return;
+            }
+
+            showMessage("計算中...", "blue");
+
+            // 3. 執行運算 (setTimeout 防止 UI 卡死)
+            setTimeout(() => {
+                if (solve(board)) {
+                    // 填回
+                    for (let i = 0; i < 9; i++) {
+                        for (let j = 0; j < 9; j++) {
+                            const idx = i * 9 + j;
+                            const cell = cells[idx];
+                            if (cell.textContent === '') {
+                                cell.textContent = board[i][j];
+                                cell.classList.add('solved'); // 標記為解答
+                            }
+                        }
+                    }
+                    showMessage("解題成功！", "green");
+                } else {
+                    showMessage("此題目無解", "red");
+                }
+            }, 50);
+        }
+
+        function solve(board) {
+            for (let r = 0; r < 9; r++) {
+                for (let c = 0; c < 9; c++) {
+                    if (board[r][c] === 0) {
+                        for (let num = 1; num <= 9; num++) {
+                            if (isValidMove(board, r, c, num)) {
+                                board[r][c] = num;
+                                if (solve(board)) return true;
+                                board[r][c] = 0;
+                            }
+                        }
+                        return false;
+                    }
+                }
+            }
+            return true;
+        }
+
+        function isValidMove(board, row, col, num) {
+            for (let x = 0; x < 9; x++) {
+                if (board[row][x] === num && x !== col) return false;
+                if (board[x][col] === num && x !== row) return false;
+            }
+            const startRow = Math.floor(row / 3) * 3;
+            const startCol = Math.floor(col / 3) * 3;
+            for (let i = 0; i < 3; i++) {
+                for (let j = 0; j < 3; j++) {
+                    if (board[startRow + i][startCol + j] === num && (startRow + i !== row || startCol + j !== col)) return false;
+                }
+            }
+            return true;
+        }
+
+        function isValidBoard(board) {
+            for (let r = 0; r < 9; r++) {
+                for (let c = 0; c < 9; c++) {
+                    let num = board[r][c];
+                    if (num !== 0) {
+                        board[r][c] = 0;
+                        if (!isValidMove(board, r, c, num)) return false;
+                        board[r][c] = num;
+                    }
+                }
+            }
+            return true;
+        }
+
+        function clearBoard() {
+            cells.forEach(c => {
+                c.textContent = '';
+                c.className = 'cell'; // 重置所有 class
+                // 補回下邊框 class
+                const index = parseInt(c.dataset.index);
+                const row = Math.floor(index / 9);
+                if (row === 2 || row === 5) c.classList.add('border-bottom');
+            });
+            selectedIndex = -1;
+            showMessage("已清空", "gray");
+        }
+
+        // 啟動
+        initGrid();
+
+    </script>
+</body>
+</html>
